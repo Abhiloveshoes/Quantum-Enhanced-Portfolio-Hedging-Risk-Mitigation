@@ -1,0 +1,11 @@
+fastapi
+os
+uvicorn
+requests
+pandas
+numpy
+redis
+plotly
+sqlalchemy
+psycopg2-binary  # PostgreSQL driver
+pydantic
