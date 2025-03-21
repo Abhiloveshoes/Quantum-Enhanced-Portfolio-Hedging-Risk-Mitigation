@@ -17,6 +17,14 @@ from sqlalchemy.orm import sessionmaker
 # FastAPI App
 app = FastAPI()
 
+@app.get("/")
+def read_root():
+    return {"message": "FastAPI is running on Render!"}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # Use Render's port if available
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
 # Alpha Vantage API Key
 ALPHA_VANTAGE_API_KEY = "OEH5W6X06JLOE76G"
 
