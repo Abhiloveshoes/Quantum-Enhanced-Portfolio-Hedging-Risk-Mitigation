@@ -17,6 +17,7 @@ if st.button("Optimize Hedge"):
 
     # Call FastAPI backend
     response = requests.post(API_URL, json={"symbols": symbol_list})
+    
 if response.status_code == 200:
     result = response.json()
     st.write("API Response:", result)  # 🔍 Debugging: Show full API response
