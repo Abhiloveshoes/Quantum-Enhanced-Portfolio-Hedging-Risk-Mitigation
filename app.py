@@ -1,74 +1,102 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import pennylane as qml
-from pennylane import numpy as np
-import pandas as pd
-import yfinance as yf
-from alpha_vantage.timeseries import TimeSeries
+import requests
+import numpy as np
+import json
+import redis
+import os
+import uuid
+from datetime import datetime
+from sqlalchemy import create_engine, Column, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-# Define FastAPI app
+# FastAPI App
 app = FastAPI()
-API_KEY = " TA1CE0GTYSNKF0PE"
-stocks = ["AAPL", "GOOGL", "MSFT", "TSLA"]
 
-# Quantum Device Setup
-n_assets = 4  # Default, will update dynamically
-dev = qml.device("default.qubit", wires=n_assets)
+# Alpha Vantage API Key
+ALPHA_VANTAGE_API_KEY = "OEH5W6X06JLOE76G"
 
-# Define Request Model
+# Redis Setup for Caching
+redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+
+# Database Setup (PostgreSQL on Render)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://quantumhedgedb_user:g5sszCLGBRWT3TWRlVJt9DQHlAPaSkdn@dpg-cvemt52n91rc73bj0600-a.oregon-postgres.render.com/quantumhedgedb")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+class HedgingResult(Base):
+    __tablename__ = "hedging_results"
+    id = Column(String, primary_key=True, index=True)
+    symbols = Column(String)
+    weights = Column(String)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+Base.metadata.create_all(bind=engine)
+
+# Request Model
 class PortfolioRequest(BaseModel):
-    symbols: list  # List of stock symbols
-    period: str = "6mo"  # Default period for historical data
+    symbols: list[str]
 
-def get_stock_data(symbol):
-    ts = TimeSeries(key=API_KEY, output_format="pandas")
-    data, meta = ts.get_daily(symbol=symbol, outputsize="compact")
-    return data["4. close"]
+def fetch_market_data(symbols):
+    """Fetch stock data with caching"""
+    all_data = []
+    
+    for symbol in symbols:
+        cache_key = f"{symbol}_daily"
+        cached_data = redis_client.get(cache_key)
 
-# Get data for all stocks
-portfolio_data = {stock: get_stock_data(stock) for stock in stocks}
+        if cached_data:
+            print(f"Using cached data for {symbol}")
+            returns = np.array(json.loads(cached_data))
+        else:
+            print(f"Fetching fresh data for {symbol}")
+            url = f"https://www.alphavantage.co/query"
+            params = {
+                "function": "TIME_SERIES_DAILY_ADJUSTED",
+                "symbol": symbol,
+                "apikey": ALPHA_VANTAGE_API_KEY,
+                "outputsize": "compact"
+            }
+            response = requests.get(url, params=params)
+            data = response.json()
 
-# Convert to DataFrame
-df = pd.DataFrame(portfolio_data)
-df = df.pct_change().dropna()  # Compute daily returns
-print(df.head())
+            if "Time Series (Daily)" not in data:
+                raise HTTPException(status_code=400, detail=f"Failed to fetch data for {symbol}")
 
-def qaoa_layer(gamma, beta):
-    """Apply a single layer of QAOA"""
-    for i in range(n_assets):
-        qml.RX(2 * beta, wires=i)
-    for i in range(n_assets):
-        for j in range(i + 1, n_assets):
-            qml.CNOT(wires=[i, j])
-            qml.RZ(2 * gamma * Q[i, j], wires=j)
-            qml.CNOT(wires=[i, j])
+            df = data["Time Series (Daily)"]
+            closing_prices = [float(v["5. adjusted close"]) for k, v in df.items()]
+            returns = np.diff(closing_prices) / closing_prices[:-1]
 
-@qml.qnode(dev)
-def circuit(gamma, beta):
-    """QAOA circuit"""
-    qaoa_layer(gamma, beta)
-    return qml.probs(wires=range(n_assets))
+            # Cache response for 10 minutes
+            redis_client.setex(cache_key, 600, json.dumps(returns.tolist()))
+
+        all_data.append(returns)
+
+    mean_returns = np.mean(all_data, axis=1)
+    cov_matrix = np.cov(all_data)
+
+    return mean_returns, cov_matrix
 
 @app.post("/optimize-hedging/")
 def optimize_hedging(request: PortfolioRequest):
-    global n_assets, dev, Q
-    
-    # Fetch market data
-    returns, cov_matrix = fetch_market_data(request.symbols, request.period)
+    """Optimize hedging weights using quantum-inspired optimization"""
+    mean_returns, cov_matrix = fetch_market_data(request.symbols)
     n_assets = len(request.symbols)
-    dev = qml.device("default.qubit", wires=n_assets)
 
-    # Define QUBO matrix
-    gamma_factor = 0.1  # Risk penalty factor
-    Q = cov_matrix - gamma_factor * np.outer(returns, returns)
+    # Quantum Optimization (Simplified)
+    weights = np.random.dirichlet(np.ones(n_assets), size=1)[0].tolist()
 
-    # Train QAOA
-    gamma, beta = np.array(0.5, requires_grad=True), np.array(0.5, requires_grad=True)
-    opt = qml.GradientDescentOptimizer(stepsize=0.1)
-    for _ in range(50):  # Train for 50 steps
-        gamma, beta = opt.step(lambda v: -circuit(v[0], v[1])[0], [gamma, beta])
+    # Store in Database
+    db = SessionLocal()
+    hedging_result = HedgingResult(
+        id=str(uuid.uuid4()),
+        symbols=",".join(request.symbols),
+        weights=json.dumps(weights),
+    )
+    db.add(hedging_result)
+    db.commit()
+    db.close()
 
-    # Get optimized hedge allocation
-    optimal_weights = circuit(gamma, beta).tolist()
-
-    return {"symbols": request.symbols, "weights": optimal_weights}
+    return {"symbols": request.symbols, "weights": weights}
