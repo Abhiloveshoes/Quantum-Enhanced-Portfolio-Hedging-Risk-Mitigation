@@ -17,13 +17,19 @@ if st.button("Optimize Hedge"):
 
     # Call FastAPI backend
     response = requests.post(API_URL, json={"symbols": symbol_list})
-    if response.status_code == 200:
-        result = response.json()
-        weights = result["weights"]
+if response.status_code == 200:
+    result = response.json()
+    st.write("API Response:", result)  # 🔍 Debugging: Show full API response
 
-        # Display Results
+    if "weights" in result:
+        weights = result["weights"]
         df = pd.DataFrame({"Stock": result["symbols"], "Weight": weights})
         fig = px.bar(df, x="Stock", y="Weight", title="Optimal Hedge Allocation", text="Weight")
         st.plotly_chart(fig)
     else:
-        st.error("Error: Could not optimize. Try again.")
+        st.error("Error: 'weights' key not found in API response.")
+else:
+    st.error(f"API Error {response.status_code}: {response.text}")
+
+    
+
