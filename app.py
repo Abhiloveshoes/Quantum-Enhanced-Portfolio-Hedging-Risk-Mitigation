@@ -8,7 +8,8 @@ import os
 import uuid
 from datetime import datetime
 from sqlalchemy import create_engine, Column, String, DateTime
-from sqlalchemy.orm import declarative_base  # Correct import
+from sqlalchemy.orm import declarative_base
+import uvicorn  # Correct import
 
 Base = declarative_base()  # Fix for SQLAlchemy 2.0
 
