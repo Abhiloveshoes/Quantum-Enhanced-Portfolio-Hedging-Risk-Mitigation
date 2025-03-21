@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 
 # Render Deployed Backend URL
-API_URL = "https://your-fastapi-app.onrender.com/optimize-hedging/"
+API_URL = "https://api.render.com/deploy/srv-cven59nnoe9s73eq361g?key=e28PSyX8hWk"
 
 st.title("Quantum Portfolio Hedging Optimizer")
 
