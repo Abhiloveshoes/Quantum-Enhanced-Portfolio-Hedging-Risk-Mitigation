@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 import requests
 import numpy as np
@@ -92,23 +92,49 @@ def fetch_market_data(symbols):
     return mean_returns, cov_matrix
 
 @app.post("/optimize-hedging/")
-def optimize_hedging(request: PortfolioRequest):
-    """Optimize hedging weights using quantum-inspired optimization"""
-    mean_returns, cov_matrix = fetch_market_data(request.symbols)
-    n_assets = len(request.symbols)
 
-    # Quantum Optimization (Simplified)
-    weights = np.random.dirichlet(np.ones(n_assets), size=1)[0].tolist()
+def optimize_hedging(request: PortfolioRequest, db: requests.Session = Depends(SessionLocal)):
+    """Optimize hedging weights using quantum-inspired optimization and print full response data."""
 
-    # Store in Database
-    db = SessionLocal()
-    hedging_result = HedgingResult(
-        id=str(uuid.uuid4()),
-        symbols=",".join(request.symbols),
-        weights=json.dumps(weights),
-    )
-    db.add(hedging_result)
-    db.commit()
-    db.close()
+    try:
+        # Fetch market data (mean returns & covariance matrix)
+        mean_returns, cov_matrix = fetch_market_data(request.symbols)
+        n_assets = len(request.symbols)
 
-    return {"symbols": request.symbols, "weights": weights}
+        # Quantum Optimization (Simplified)
+        weights = np.random.dirichlet(np.ones(n_assets), size=1)[0].tolist()
+
+        # Prepare response data
+        response_data = {
+            "symbols": request.symbols,
+            "weights": weights
+        }
+
+        # Print the full response (for debugging)
+        print("🔍 API Response:", json.dumps(response_data, indent=4))
+
+        # Store in Database
+        hedging_result = HedgingResult(
+            id=str(uuid.uuid4()),
+            symbols=",".join(request.symbols),
+            weights=json.dumps(weights),
+        )
+        db.add(hedging_result)
+        db.commit()
+
+        return response_data
+
+    except Exception as e:
+        db.rollback()
+        error_response = {"error": str(e)}
+        print("❌ API Error:", json.dumps(error_response, indent=4))  # Print error response
+        return error_response
+
+    finally:
+        db.close()
+
+
+
+
+
+    
