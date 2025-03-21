@@ -8,7 +8,7 @@ import os
 import uuid
 from datetime import datetime
 from sqlalchemy import create_engine, Column, String, DateTime
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, Session
 import uvicorn  # Correct import
 
 Base = declarative_base()  # Fix for SQLAlchemy 2.0
@@ -91,10 +91,19 @@ def fetch_market_data(symbols):
 
     return mean_returns, cov_matrix
 
-@app.post("/optimize-hedging/")
 
-def optimize_hedging(request: PortfolioRequest, db: requests.Session = Depends(SessionLocal)):
-    """Optimize hedging weights using quantum-inspired optimization and print full response data."""
+
+# Database Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.post("/optimize-hedging/")
+def optimize_hedging(request: PortfolioRequest, db: Session = Depends(get_db)):
+    """Optimize hedging weights using quantum-inspired optimization and return full response data."""
 
     try:
         # Fetch market data (mean returns & covariance matrix)
@@ -110,7 +119,7 @@ def optimize_hedging(request: PortfolioRequest, db: requests.Session = Depends(S
             "weights": weights
         }
 
-        # Print the full response (for debugging)
+        # Debugging: Print the full response
         print("🔍 API Response:", json.dumps(response_data, indent=4))
 
         # Store in Database
@@ -126,12 +135,8 @@ def optimize_hedging(request: PortfolioRequest, db: requests.Session = Depends(S
 
     except Exception as e:
         db.rollback()
-        error_response = {"error": str(e)}
-        print("❌ API Error:", json.dumps(error_response, indent=4))  # Print error response
-        return error_response
-
-    finally:
-        db.close()
+        print(f"❌ API Error: {str(e)}")  # Print error response
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")  # Return proper HTTP error
 
 
 
